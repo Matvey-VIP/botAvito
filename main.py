@@ -98,9 +98,10 @@ def parse_avito(query):
 async def start(message: Message):
     await message.answer(
         "👋 Привет! Я бот-парсер Avito.\n"
-        "Введи название товара, например:\n"
-        "🔹 iphone 13\n"
-        "🔹 велосипед"
+        "Введи название товара, чтобы найти объявления.\n"
+        "Команды:\n"
+        "/stats <товар> — статистика цен\n"
+        "/start — это сообщение"
     )
 
 @dp.message()
@@ -115,6 +116,118 @@ async def handle_message(message: Message):
 async def main():
     print("✅ Бот запущен!")
     await dp.start_polling(bot)
+
+# ===== ФУНКЦИЯ ДЛЯ СБОРА ЦЕН =====
+def get_prices_and_links(query):
+    """
+    Парсит Avito и возвращает список словарей:
+    [{'title': ..., 'price': int, 'link': ...}, ...]
+    """
+    ua = UserAgent()
+    headers = {
+        'User-Agent': ua.random,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'max-age=0',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Referer': 'https://www.avito.ru/',
+    }
+
+    url = f"https://www.avito.ru/moskva?q={query}"
+    session = requests.Session()
+    session.headers.update(headers)
+
+    try:
+        # Добавляем задержку
+        time.sleep(random.uniform(1.0, 2.5))
+        response = session.get(url, timeout=15)
+
+        if response.status_code != 200:
+            return None  # ошибка
+
+        if 'captcha' in response.text.lower():
+            return None
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        items = soup.find_all('div', {'data-marker': 'item'}) or soup.find_all('div', class_='iva-item-content-rejJg') or soup.find_all('article')
+
+        results = []
+        for item in items[:20]:  # берём до 20 для статистики
+            # Заголовок
+            title_tag = item.find('h3') or item.find('a', {'data-marker': 'item-title'})
+            title = title_tag.text.strip() if title_tag else "Без названия"
+
+            # Цена
+            price_tag = item.find('span', {'itemprop': 'price'}) or item.find('span', class_='price-text-') or item.find('span', {'data-marker': 'item-price'})
+            price_text = price_tag.text.strip() if price_tag else "0"
+            # Очищаем от пробелов и символов валют
+            price_cleaned = ''.join(filter(str.isdigit, price_text))
+            price = int(price_cleaned) if price_cleaned else 0
+
+            if price == 0:
+                continue  # пропускаем без цены
+
+            # Ссылка
+            link_tag = item.find('a', {'data-marker': 'item-title'})
+            link = f"https://www.avito.ru{link_tag['href']}" if link_tag and link_tag.get('href') else None
+
+            results.append({
+                'title': title,
+                'price': price,
+                'link': link
+            })
+
+        return results if results else None
+
+    except Exception:
+        return None
+
+# ===== КОМАНДА /stats =====
+@dp.message(Command("stats"))
+async def stats_command(message: Message):
+    # Разбираем запрос: /stats шорты
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❗ Укажите товар: `/stats шорты`")
+        return
+
+    query = args[1].strip()
+    await message.answer(f"⏳ Собираю статистику для «{query}»...")
+
+    data = get_prices_and_links(query)
+    if not data:
+        await message.answer("❌ Не удалось получить данные. Возможно, Avito блокирует запрос или товары не найдены.")
+        return
+
+    prices = [item['price'] for item in data]
+    count = len(prices)
+    if count == 0:
+        await message.answer("❌ Нет объявлений с ценой.")
+        return
+
+    min_price = min(prices)
+    max_price = max(prices)
+    avg_price = sum(prices) / count
+
+    # Формируем ответ
+    answer = (
+        f"📊 Статистика по запросу «{query}»:\n"
+        f"📦 Найдено объявлений: {count}\n"
+        f"🔻 Минимальная цена: {min_price:,} ₽\n"
+        f"🔺 Максимальная цена: {max_price:,} ₽\n"
+        f"📈 Средняя цена: {round(avg_price):,} ₽\n"
+    )
+
+    # Дополнительные рекомендации (если цена ниже среднего)
+    if avg_price > 0:
+        answer += f"\n💡 Рекомендуемая цена для перепродажи: ≤ {round(avg_price * 0.7):,} ₽ (скидка 30% от средней)"
+
+    await message.answer(answer)
 
 if __name__ == "__main__":
     # Для Windows иногда нужно установить другую политику цикла
