@@ -24,52 +24,82 @@ else:
 dp = Dispatcher()
 
 # ===== ФУНКЦИЯ ПАРСИНГА AVITO =====
+import requests
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+import time
+import random
+
 def parse_avito(query):
+    # Создаём сессию для сохранения кук
+    session = requests.Session()
+    
+    # Формируем максимально реалистичные заголовки
     ua = UserAgent()
     headers = {
         'User-Agent': ua.random,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'max-age=0',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Referer': 'https://www.avito.ru/',
     }
+    
+    # Обновляем заголовки сессии
+    session.headers.update(headers)
 
     url = f"https://www.avito.ru/moskva?q={query}"
 
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+        # Имитация поведения человека: задержка
+        time.sleep(random.uniform(1.5, 3.0))
+        
+        # Первый запрос — получаем страницу
+        response = session.get(url, timeout=15)
+        
+        # Если 403 — пробуем через прокси (если они есть)
+        if response.status_code == 403:
+            # Можно попробовать использовать бесплатный прокси
+            # (пример, но лучше иметь свой надёжный)
+            proxy_list = [
+                # Здесь можно вставить свои прокси, либо оставить пустым
+                # 'http://123.45.67.89:8080',
+            ]
+            for proxy in proxy_list:
+                try:
+                    proxies = {'http': proxy, 'https': proxy}
+                    response = session.get(url, proxies=proxies, timeout=15)
+                    if response.status_code == 200:
+                        break
+                except:
+                    continue
+        
+        # Проверяем статус
+        if response.status_code != 200:
+            return [f"❌ Ошибка доступа к Avito: статус {response.status_code}. Попробуйте позже или измените запрос."]
 
-        # ---- ОТЛАДКА: сохраняем HTML в файл ----
-        with open('debug_avito.html', 'w', encoding='utf-8') as f:
-            f.write(response.text)
-        print(f"DEBUG: HTML сохранён в debug_avito.html, длина {len(response.text)}")
-
-        # Проверяем на капчу
+        # Проверка на капчу
         if 'captcha' in response.text.lower():
-            return ["⚠️ Avito запросил капчу. Попробуйте позже."]
+            return ["⚠️ Avito запросил капчу. Попробуйте позже или используйте прокси."]
 
+        # Парсинг
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Пробуем разные способы поиска товаров
-        items = []
-        # Способ 1: data-marker
+        
+        # Ищем карточки товаров (разные варианты)
         items = soup.find_all('div', {'data-marker': 'item'})
         if not items:
-            # Способ 2: класс для карточки
             items = soup.find_all('div', class_='iva-item-content-rejJg')
         if not items:
-            # Способ 3: поиск по статье (article) — часто используется
             items = soup.find_all('article')
 
         if not items:
-            # Если ничего не нашли, выведем часть HTML для анализа
-            snippet = response.text[:1000]
-            return [f"❌ HTML не содержит карточек товаров.\nПервые 1000 символов:\n{snippet}"]
+            return ["❌ Товары не найдены. Возможно, Avito изменил структуру страницы."]
 
         results = []
         for item in items[:10]:
@@ -90,10 +120,13 @@ def parse_avito(query):
 
             results.append(f"{title}\n💰 {price}\n🔗 {link}\n---")
 
-        return results if results else ["❌ Товары не найдены. Возможно, Avito вернул пустую страницу."]
+        return results if results else ["❌ Ничего не найдено. Попробуйте другое ключевое слово."]
 
+    except requests.exceptions.RequestException as e:
+        return [f"❌ Ошибка сети: {str(e)}"]
     except Exception as e:
-        return [f"❌ Ошибка: {str(e)}"]# ===== КОМАНДЫ =====
+        return [f"❌ Ошибка: {str(e)}"]
+===== КОМАНДЫ =====
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
