@@ -95,7 +95,7 @@ def parse_avito(query):
     except Exception as e:
         return [f"❌ Ошибка: {str(e)}"]
 
-===== КОМАНДЫ =====
+# ===== КОМАНДЫ =====
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
