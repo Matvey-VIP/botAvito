@@ -93,7 +93,9 @@ def parse_avito(query):
         return results if results else ["❌ Товары не найдены. Возможно, Avito вернул пустую страницу."]
 
     except Exception as e:
-        return [f"❌ Ошибка: {str(e)}"]===== КОМАНДЫ =====
+        return [f"❌ Ошибка: {str(e)}"]
+
+===== КОМАНДЫ =====
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
